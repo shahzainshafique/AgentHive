@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+combined.log
+error.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
