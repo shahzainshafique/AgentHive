@@ -56,21 +56,36 @@ io.on('connection', (socket) => {
         "You are a helpful AI assistant. Provide clear, concise, and accurate responses."
       );
 
-      const message = {
+      // Stream the response word by word
+      const words = response.split(' ');
+      for (let i = 0; i < words.length; i++) {
+        socket.emit('chat_message', {
+          content: words[i] + ' ',
+          sender: 'agent',
+          isStreaming: true
+        });
+        // Add a small delay between words
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+
+      // Send end of streaming message
+      socket.emit('chat_message', {
         content: response,
         sender: 'agent',
-        timestamp: new Date().toISOString()
-      };
+        timestamp: new Date().toISOString(),
+        isStreamingEnd: true
+      });
 
-      // Save message to conversation
+      // Save complete message to conversation
       await Conversation.findOneAndUpdate(
         { type: 'general' },
-        { $push: { messages: message } },
+        { $push: { messages: {
+          content: response,
+          sender: 'agent',
+          timestamp: new Date().toISOString()
+        }}},
         { upsert: true }
       );
-
-      // Send response back to client
-      socket.emit('chat_message', message);
     } catch (error) {
       logger.error('General chat error:', error);
       socket.emit('error', { message: 'Failed to process message' });
@@ -109,18 +124,35 @@ io.on('connection', (socket) => {
             timestamp: new Date().toISOString()
           };
       }
-console.log('res',response);
-      // Save message to conversation
-      if(response){
-      await Conversation.findOneAndUpdate(
-        { type: 'agent', agentId: data.agentId },
-        { $push: { messages: response } },
-        { upsert: true }
-      );
 
-      // Send the response back to the client
-      socket.emit('chat_message', response);
-    }
+      if (response) {
+        // Stream the response word by word
+        const words = response.content.split(' ');
+        for (let i = 0; i < words.length; i++) {
+          socket.emit('chat_message', {
+            content: words[i] + ' ',
+            sender: 'agent',
+            isStreaming: true
+          });
+          // Add a small delay between words
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // Send end of streaming message
+        socket.emit('chat_message', {
+          content: response.content,
+          sender: 'agent',
+          timestamp: new Date().toISOString(),
+          isStreamingEnd: true
+        });
+
+        // Save complete message to conversation
+        await Conversation.findOneAndUpdate(
+          { type: 'agent', agentId: data.agentId },
+          { $push: { messages: response }},
+          { upsert: true }
+        );
+      }
     } catch (error) {
       logger.error('Chat message error:', error);
       socket.emit('error', { message: 'Failed to process message' });
