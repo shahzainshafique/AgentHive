@@ -3,14 +3,11 @@ const logger = require('./logger');
 
 const connectDB = async () => {
   try {
-    const mongoURI = process.env.MONGODB_URI || 'mongodb://mongodb:27017/agenthive';
-    await mongoose.connect(mongoURI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/agenthive';
+    await mongoose.connect(mongoURI);
     logger.info('MongoDB Connected...');
   } catch (err) {
-    logger.error('MongoDB connection error:', err.message);
+    logger.error('MongoDB connection error:', err);
     process.exit(1);
   }
 };

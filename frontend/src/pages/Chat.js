@@ -34,6 +34,8 @@ const Chat = ({type}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [agent, setAgent] = useState(null);
   const [socket, setSocket] = useState(null);
+  const [streamingMessage, setStreamingMessage] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef(null);
   const navigate = useNavigate();
   const { agentId } = useParams();
@@ -63,9 +65,28 @@ useEffect(() => {
 // Define handler functions outside useEffect
 const handleNewMessage = (message) => {
   console.log('Received message:', message);
-  setMessages(prev => [...prev, message]);
-  setIsLoading(false);
-  scrollToBottom();
+  
+  if (message.isStreaming) {
+    // Handle streaming message
+    setStreamingMessage(prev => prev + message.content);
+    setIsStreaming(true);
+  } else if (message.isStreamingEnd) {
+    // End of streaming message
+    setMessages(prev => [...prev, {
+      content: streamingMessage,
+      sender: message.sender,
+      timestamp: new Date().toISOString()
+    }]);
+    setStreamingMessage('');
+    setIsStreaming(false);
+    setIsLoading(false);
+    scrollToBottom();
+  } else {
+    // Regular message
+    setMessages(prev => [...prev, message]);
+    setIsLoading(false);
+    scrollToBottom();
+  }
 };
 
 const handleError = (error) => {
@@ -223,6 +244,38 @@ const handleKeyPress = (e) => {
       <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
         <List>
           {messages.map(renderMessage)}
+          {isStreaming && (
+            <ListItem
+              sx={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                mb: 2
+              }}
+            >
+              <ListItemAvatar>
+                <Avatar sx={{ mt: 2, bgcolor: 'secondary.main' }}>
+                  <AgentIcon />
+                </Avatar>
+              </ListItemAvatar>
+              <ListItemText
+                primary={
+                  <Paper
+                    elevation={1}
+                    sx={{
+                      mr: 2,
+                      p: 2,
+                      maxWidth: '70%',
+                      bgcolor: 'grey.900',
+                      color: 'text.primary',
+                      borderRadius: 2
+                    }}
+                  >
+                    <Typography variant="body1">{streamingMessage}</Typography>
+                  </Paper>
+                }
+              />
+            </ListItem>
+          )}
           <div ref={messagesEndRef} />
         </List>
       </Box>
