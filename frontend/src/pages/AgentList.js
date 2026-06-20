@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
-  Card,
-  CardContent,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -15,17 +13,23 @@ import {
   Select,
   MenuItem,
   Grid,
-  IconButton,
-  Tooltip
+  Alert,
+  Snackbar,
+  Fab,
+  Fade,
+  Skeleton
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Chat as ChatIcon } from '@mui/icons-material';
+import { Add as AddIcon } from '@mui/icons-material';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import AgentCard from '../components/AgentCard';
 
 const AgentList = () => {
   const [agents, setAgents] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [formData, setFormData] = useState({
     name: '',
     type: '',
@@ -48,11 +52,19 @@ const AgentList = () => {
 
   const fetchAgents = async () => {
     try {
+      setLoading(true);
       const response = await axios.get('http://localhost:5000/api/agents');
       setAgents(response.data);
     } catch (error) {
       console.error('Error fetching agents:', error);
+      showSnackbar('Error fetching agents', 'error');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const showSnackbar = (message, severity = 'success') => {
+    setSnackbar({ open: true, message, severity });
   };
 
   const handleOpen = (agent = null) => {
@@ -97,42 +109,6 @@ const AgentList = () => {
     setEditingAgent(null);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const configMap = new Map();
-      Object.entries(formData.configuration).forEach(([key, value]) => {
-        if (value) configMap.set(key, value);
-      });
-
-      const agentData = {
-        ...formData,
-        configuration: configMap
-      };
-
-      if (editingAgent) {
-        await axios.put(`http://localhost:5000/api/agents/${editingAgent._id}`, agentData);
-      } else {
-        await axios.post('http://localhost:5000/api/agents', agentData);
-      }
-      handleClose();
-      fetchAgents();
-    } catch (error) {
-      console.error('Error saving agent:', error);
-    }
-  };
-
-  const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this agent?')) {
-      try {
-        await axios.delete(`http://localhost:5000/api/agents/${id}`);
-        fetchAgents();
-      } catch (error) {
-        console.error('Error deleting agent:', error);
-      }
-    }
-  };
-
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name.startsWith('config.')) {
@@ -152,6 +128,51 @@ const AgentList = () => {
     }
   };
 
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const configMap = new Map();
+      Object.entries(formData.configuration).forEach(([key, value]) => {
+        if (value) configMap.set(key, value);
+      });
+
+      const agentData = {
+        ...formData,
+        configuration: configMap
+      };
+
+      if (editingAgent) {
+        await axios.put(`http://localhost:5000/api/agents/${editingAgent._id}`, agentData);
+        showSnackbar('Agent updated successfully');
+      } else {
+        await axios.post('http://localhost:5000/api/agents', agentData);
+        showSnackbar('Agent created successfully');
+      }
+      handleClose();
+      fetchAgents();
+    } catch (error) {
+      console.error('Error saving agent:', error);
+      showSnackbar('Error saving agent', 'error');
+    }
+  };
+
+  const handleDelete = async (agentId) => {
+    if (window.confirm('Are you sure you want to delete this agent?')) {
+      try {
+        await axios.delete(`http://localhost:5000/api/agents/${agentId}`);
+        showSnackbar('Agent deleted successfully');
+        fetchAgents();
+      } catch (error) {
+        console.error('Error deleting agent:', error);
+        showSnackbar('Error deleting agent', 'error');
+      }
+    }
+  };
+
+  const handleAgentClick = (agent) => {
+    navigate(`/chat/agent/${agent._id}`);
+  };
+
   const getConfigFields = (type) => {
     switch (type) {
       case 'github':
@@ -164,6 +185,7 @@ const AgentList = () => {
             onChange={handleChange}
             margin="normal"
             type="password"
+            helperText="Personal access token for GitHub API"
           />
         );
       case 'shopify':
@@ -193,7 +215,7 @@ const AgentList = () => {
           <>
             <TextField
               fullWidth
-              label="Email"
+              label="Email Address"
               name="config.email"
               value={formData.configuration.email}
               onChange={handleChange}
@@ -221,6 +243,7 @@ const AgentList = () => {
             onChange={handleChange}
             margin="normal"
             type="password"
+            helperText="JSON credentials for calendar access"
           />
         );
       default:
@@ -228,72 +251,86 @@ const AgentList = () => {
     }
   };
 
-  const handleAgentClick = (agent) => {
-    navigate(`/chat/agent/${agent._id}`);
-  };
-
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-        <Typography variant="h4">Agents</Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpen()}
-        >
-          Add Agent
-        </Button>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            AI Agents
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Manage your MCP-enabled agents for various tasks
+          </Typography>
+        </Box>
       </Box>
 
-      <Grid container spacing={3}>
-        {agents.map((agent) => (
-          <Grid item xs={12} sm={6} md={4} key={agent._id}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="h6">{agent.name}</Typography>
-                  <Box>
-                    <Tooltip title="Edit">
-                      <IconButton onClick={() => handleOpen(agent)}>
-                        <EditIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete">
-                      <IconButton onClick={() => handleDelete(agent._id)}>
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Chat">
-                      <IconButton onClick={() => handleAgentClick(agent)}>
-                        <ChatIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-                <Typography color="textSecondary" gutterBottom>
-                  Type: {agent.type}
+      {loading ? (
+        <Grid container spacing={3}>
+          {[...Array(6)].map((_, index) => (
+            <Grid item xs={12} sm={6} md={4} key={index}>
+              <Skeleton variant="rectangular" height={280} sx={{ borderRadius: 2 }} />
+            </Grid>
+          ))}
+        </Grid>
+      ) : (
+        <Grid container spacing={3}>
+          {agents.map((agent) => (
+            <Grid item xs={12} sm={6} md={4} key={agent._id}>
+              <Fade in timeout={300}>
+                <div>
+                  <AgentCard
+                    agent={agent}
+                    onEdit={handleOpen}
+                    onDelete={handleDelete}
+                    onChat={handleAgentClick}
+                  />
+                </div>
+              </Fade>
+            </Grid>
+          ))}
+          {agents.length === 0 && (
+            <Grid item xs={12}>
+              <Box sx={{ textAlign: 'center', py: 8 }}>
+                <Typography variant="h6" color="text.secondary" gutterBottom>
+                  No agents configured yet
                 </Typography>
-                <Typography variant="body2">
-                  {agent.description}
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Create your first AI agent to get started
                 </Typography>
-                <Typography color="textSecondary" sx={{ mt: 1 }}>
-                  Status: {agent.status}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => handleOpen()}
+                  size="large"
+                >
+                  Create Agent
+                </Button>
+              </Box>
+            </Grid>
+          )}
+        </Grid>
+      )}
 
+      {/* Floating Action Button */}
+      <Fab
+        color="primary"
+        aria-label="add"
+        sx={{ position: 'fixed', bottom: 24, right: 24 }}
+        onClick={() => handleOpen()}
+      >
+        <AddIcon />
+      </Fab>
+
+      {/* Agent Dialog */}
       <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle>
-          {editingAgent ? 'Edit Agent' : 'Add New Agent'}
+          {editingAgent ? 'Edit Agent' : 'Create New Agent'}
         </DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
             <TextField
               fullWidth
-              label="Name"
+              label="Agent Name"
               name="name"
               value={formData.name}
               onChange={handleChange}
@@ -301,13 +338,13 @@ const AgentList = () => {
               margin="normal"
             />
             <FormControl fullWidth margin="normal">
-              <InputLabel>Type</InputLabel>
+              <InputLabel>Agent Type</InputLabel>
               <Select
                 name="type"
                 value={formData.type}
                 onChange={handleChange}
                 required
-                label="Type"
+                label="Agent Type"
               >
                 <MenuItem value="github">GitHub</MenuItem>
                 <MenuItem value="shopify">Shopify</MenuItem>
@@ -332,15 +369,13 @@ const AgentList = () => {
                 name="status"
                 value={formData.status}
                 onChange={handleChange}
-                required
                 label="Status"
               >
                 <MenuItem value="active">Active</MenuItem>
                 <MenuItem value="inactive">Inactive</MenuItem>
-                <MenuItem value="error">Error</MenuItem>
               </Select>
             </FormControl>
-            {formData.type && getConfigFields(formData.type)}
+            {getConfigFields(formData.type)}
           </Box>
         </DialogContent>
         <DialogActions>
@@ -350,6 +385,21 @@ const AgentList = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+      >
+        <Alert 
+          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

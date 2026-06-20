@@ -3,11 +3,17 @@ const logger = require('../config/logger');
 const aiService = require('./aiService');
 
 class GitHubService {
+  getConfig(agent, key) {
+    if (agent.configuration instanceof Map) {
+      return agent.configuration.get(key);
+    }
+    return agent.configuration?.[key];
+  }
+
   async handleOperation(message, agent) {
     try {
-      const octokit = new Octokit({
-        auth: agent.configuration.get('githubToken')
-      });
+      const token = this.getConfig(agent, 'githubToken');
+      const octokit = new Octokit({ auth: token });
 
       const operationResponse = await aiService.callHuggingFace(
         message,
@@ -28,7 +34,7 @@ class GitHubService {
       } catch (error) {
         logger.error('Error parsing operation response:', error);
         return {
-          text: "I'm sorry, I couldn't understand what GitHub operation you want to perform.",
+          content: "I'm sorry, I couldn't understand what GitHub operation you want to perform.",
           sender: 'agent',
           timestamp: new Date().toISOString()
         };
@@ -39,14 +45,14 @@ class GitHubService {
       }
 
       return {
-        text: "I'm sorry, I couldn't understand what GitHub operation you want to perform.",
+        content: "I'm sorry, I couldn't understand what GitHub operation you want to perform.",
         sender: 'agent',
         timestamp: new Date().toISOString()
       };
     } catch (error) {
       logger.error('GitHub operation error:', error);
       return {
-        text: "I'm sorry, there was an error processing your GitHub request.",
+        content: "I'm sorry, there was an error processing your GitHub request.",
         sender: 'agent',
         timestamp: new Date().toISOString()
       };
@@ -83,7 +89,7 @@ class GitHubService {
         "You are a helpful assistant that summarizes GitHub pull requests. Provide a concise summary of the changes."
       );
       return {
-        text: summary,
+        content: summary,
         sender: 'agent',
         timestamp: new Date().toISOString()
       };

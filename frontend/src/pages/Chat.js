@@ -1,318 +1,316 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import {
   Box,
-  Paper,
   TextField,
   IconButton,
-  Typography,
   CircularProgress,
-  Divider,
+  Typography,
+  Chip,
   Avatar,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemAvatar,
-  Card,
-  CardContent,
-  Button
+  Paper,
+  Button,
 } from '@mui/material';
 import {
   Send as SendIcon,
-  ArrowBack as ArrowBackIcon,
   SmartToy as AgentIcon,
-  Person as UserIcon
+  Circle as CircleIcon,
 } from '@mui/icons-material';
-import axios from 'axios';
-import io from 'socket.io-client';
+import {
+  getAgent,
+  getGeneralConversation,
+  getAgentConversation,
+  saveMessage,
+} from '../services/api';
+import getSocket from '../services/socket';
+import { getSuggestedPrompts, isAgentConfigured } from '../utils/agentHelpers';
+import MessageBubble from '../components/MessageBubble';
 
-const Chat = ({type}) => {
+const Chat = ({ type }) => {
   const { id } = useParams();
-  console.log('type', type, '  id:', id);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [agent, setAgent] = useState(null);
-  const [socket, setSocket] = useState(null);
-  const [streamingMessage, setStreamingMessage] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [currentStream, setCurrentStream] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef(null);
-  const navigate = useNavigate();
-  const { agentId } = useParams();
+  const socketRef = useRef(null);
 
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
 
-useEffect(() => {
-  // Initialize socket connection
-  const newSocket = io('http://localhost:5000');
-  setSocket(newSocket);
-     // Fetch agent details
-     fetchAgentDetails();
-  // Add debug logging
-  newSocket.on('connect', () => {
-    console.log('Socket connected:', newSocket.id);
-  });
+  const handleNewMessage = useCallback((message) => {
+    if (message.isStreaming) {
+      setIsStreaming(true);
+      setCurrentStream((prev) => prev + message.content);
+      scrollToBottom();
+    } else if (message.isStreamingEnd) {
+      setIsStreaming(false);
+      setMessages((prev) => [...prev, message]);
+      setCurrentStream('');
+      setIsLoading(false);
+      scrollToBottom();
+    } else {
+      setMessages((prev) => [...prev, message]);
+      setIsLoading(false);
+      scrollToBottom();
+    }
+  }, [scrollToBottom]);
 
-  // Set up event listeners
-  newSocket.on('chat_message', handleNewMessage);
-  newSocket.on('error', handleError);
-  fetchChatHistory();
-  // Clean up on unmount
-  return () => {
-    newSocket.disconnect();
-  };
-}, [agentId]);
-
-// Define handler functions outside useEffect
-const handleNewMessage = (message) => {
-  console.log('Received message:', message);
-  
-  if (message.isStreaming) {
-    // Handle streaming message
-    setStreamingMessage(prev => prev + message.content);
-    setIsStreaming(true);
-  } else if (message.isStreamingEnd) {
-    // End of streaming message
-    setMessages(prev => [...prev, {
-      content: streamingMessage,
-      sender: message.sender,
-      timestamp: new Date().toISOString()
-    }]);
-    setStreamingMessage('');
+  const handleError = useCallback((error) => {
+    console.error('Socket error:', error);
+    setMessages((prev) => [
+      ...prev,
+      {
+        content: error?.message || 'An error occurred. Please try again.',
+        sender: 'system',
+        type: 'error',
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    setIsLoading(false);
     setIsStreaming(false);
-    setIsLoading(false);
-    scrollToBottom();
-  } else {
-    // Regular message
-    setMessages(prev => [...prev, message]);
-    setIsLoading(false);
-    scrollToBottom();
-  }
-};
+  }, []);
 
-const handleError = (error) => {
-  console.error('Socket error:', error);
-  setMessages(prev => [...prev, {
-    text: 'An error occurred. Please try again.',
-    sender: 'system',
-    timestamp: new Date().toISOString()
-  }]);
-  setIsLoading(false);
-};
-
-// Update the send function
-const handleSend = (e) => {
-  // Prevent form submission from reloading the page
-  if (e) {
-    e.preventDefault();
-  }
-  
-  if (!input.trim()) return;
-  
-  const message = {
-    content: input,
-    sender: 'user',
-    timestamp: new Date().toISOString(),
-  };
-
-  // Save message to database
-  saveMessage(message);
-
-  setMessages((prev) => [...prev, message]);
-  setInput('');
-  setIsLoading(true);
-
-  // Send message to server
-  if (type === 'general') {
-    socket.emit('general_chat', { message: input });
-  } else {
-    socket.emit('chat_message', {
-      message: input,
-      agentId: id
-    });
-  }
-};
-
-const handleKeyPress = (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    handleSend();
-  }
-};
-
-  const fetchAgentDetails = async () => {
+  const fetchAgentDetails = useCallback(async () => {
+    if (type !== 'agent' || !id) return;
     try {
-      const response = await axios.get(`http://localhost:5000/api/agents/${id}`);
-      setAgent(response.data);
+      const { data } = await getAgent(id);
+      setAgent(data);
     } catch (error) {
       console.error('Error fetching agent details:', error);
     }
-  };
+  }, [type, id]);
 
-  const fetchChatHistory = async () => {
+  const fetchChatHistory = useCallback(async () => {
     try {
-      const endpoint = type === 'general' 
-        ? 'http://localhost:5000/api/conversations/general'
-        : `http://localhost:5000/api/conversations/agent/${id}`;
-      
-      const response = await axios.get(endpoint);
-      setMessages(response.data);
+      const { data } = type === 'general'
+        ? await getGeneralConversation()
+        : await getAgentConversation(id);
+      setMessages(data);
       scrollToBottom();
     } catch (error) {
       console.error('Error fetching chat history:', error);
     }
-  };
+  }, [type, id, scrollToBottom]);
 
-  const saveMessage = async (message) => {
+  useEffect(() => {
+    const socket = getSocket();
+    socketRef.current = socket;
+
+    socket.on('connect', () => setConnected(true));
+    socket.on('disconnect', () => setConnected(false));
+    socket.on('chat_message', handleNewMessage);
+    socket.on('error', handleError);
+
+    fetchAgentDetails();
+    fetchChatHistory();
+
+    return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('chat_message', handleNewMessage);
+      socket.off('error', handleError);
+    };
+  }, [id, type, handleNewMessage, handleError, fetchAgentDetails, fetchChatHistory]);
+
+  const persistMessage = async (message) => {
     try {
-      await axios.post('http://localhost:5000/api/conversations/message', {
+      await saveMessage({
         type,
         agentId: type === 'agent' ? id : undefined,
-        message
+        message,
       });
     } catch (error) {
       console.error('Error saving message:', error);
     }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const sendMessage = (text) => {
+    if (!text.trim() || isLoading) return;
+
+    const message = {
+      content: text,
+      sender: 'user',
+      timestamp: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, message]);
+    persistMessage(message);
+    setInput('');
+    setIsLoading(true);
+
+    const socket = socketRef.current;
+    if (type === 'general') {
+      socket.emit('general_chat', { message: text });
+    } else {
+      socket.emit('chat_message', { message: text, agentId: id });
+    }
   };
 
-
-  const renderMessage = (message) => {
-    const isUser = message.sender === 'user';
-    const isError = message.type === 'error';
-  
-    return (
-      <ListItem
-        key={message.timestamp}
-        sx={{
-          flexDirection: isUser ? 'row-reverse' : 'row',
-          alignItems: 'flex-start',
-          mb: 2
-        }}
-      >
-        <ListItemAvatar>
-          <Avatar sx={{ mt:2 , bgcolor: isUser ? 'primary.main' : 'secondary.main' }}>
-            {isUser ? <UserIcon /> : <AgentIcon />}
-          </Avatar>
-        </ListItemAvatar>
-        <ListItemText
-          sx={{
-            // Add this to align the content properly
-            '.MuiListItemText-primary': {
-              display: 'flex',
-              justifyContent: isUser ? 'flex-end' : 'flex-start'
-            }
-          }}
-          primary={
-            <Paper
-              elevation={1}
-              sx={{
-                mr: 2,
-                p: 2,
-                maxWidth: '70%',
-                bgcolor: isError ? 'error.light' : isUser ? 'grey.800' : 'grey.900',
-                color: isError ? 'error.contrastText' : 'text.primary',
-                borderRadius: 2
-              }}
-            >
-              <Typography variant="body1">{message.content || message.text}</Typography>
-            </Paper>
-          }
-          secondary={
-            <Typography
-              variant="caption"
-              sx={{
-                display: 'block',
-                textAlign: isUser ? 'right' : 'left',
-                mt: 0.5
-              }}
-            >
-              {new Date(message.timestamp).toLocaleTimeString()}
-            </Typography>
-          }
-        />
-      </ListItem>
-    );
+  const handleSend = (e) => {
+    e?.preventDefault();
+    sendMessage(input);
   };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend(e);
+    }
+  };
+
+  const chatTitle = type === 'general' ? 'General Assistant' : agent?.name || 'Agent Chat';
+  const chatSubtitle = type === 'general'
+    ? 'Ask anything — routes to the best agent when needed'
+    : agent?.description;
+  const prompts = getSuggestedPrompts(type === 'general' ? 'general' : agent?.type);
+  const agentConfigured = agent ? isAgentConfigured(agent) : true;
 
   return (
-    <Box sx={{ height: '90vh', display: 'flex', flexDirection: 'column' }}>
-
-      {/* Messages */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
-        <List>
-          {messages.map(renderMessage)}
-          {isStreaming && (
-            <ListItem
-              sx={{
-                flexDirection: 'row',
-                alignItems: 'flex-start',
-                mb: 2
-              }}
-            >
-              <ListItemAvatar>
-                <Avatar sx={{ mt: 2, bgcolor: 'secondary.main' }}>
-                  <AgentIcon />
-                </Avatar>
-              </ListItemAvatar>
-              <ListItemText
-                primary={
-                  <Paper
-                    elevation={1}
-                    sx={{
-                      mr: 2,
-                      p: 2,
-                      maxWidth: '70%',
-                      bgcolor: 'grey.900',
-                      color: 'text.primary',
-                      borderRadius: 2
-                    }}
-                  >
-                    <Typography variant="body1">{streamingMessage}</Typography>
-                  </Paper>
-                }
-              />
-            </ListItem>
+    <Box sx={{ height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column', maxWidth: 900, mx: 'auto' }}>
+      <Paper
+        sx={{
+          px: 3,
+          py: 2,
+          mb: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
+          borderRadius: 3,
+        }}
+      >
+        <Avatar sx={{ bgcolor: 'primary.main', width: 44, height: 44 }}>
+          <AgentIcon />
+        </Avatar>
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          <Typography variant="h6" noWrap>{chatTitle}</Typography>
+          {chatSubtitle && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>
+              {chatSubtitle}
+            </Typography>
           )}
-          <div ref={messagesEndRef} />
-        </List>
-      </Box>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexShrink: 0 }}>
+          {type === 'agent' && agent && (
+            <Chip
+              size="small"
+              label={agentConfigured ? 'Configured' : 'Needs setup'}
+              color={agentConfigured ? 'success' : 'warning'}
+              variant="outlined"
+            />
+          )}
+          <Chip
+            size="small"
+            icon={<CircleIcon sx={{ fontSize: '10px !important', color: connected ? 'success.main' : 'error.main' }} />}
+            label={connected ? 'Connected' : 'Disconnected'}
+            variant="outlined"
+            color={connected ? 'success' : 'error'}
+          />
+        </Box>
+      </Paper>
 
-      <Divider />
+      <Paper
+        sx={{
+          flex: 1,
+          overflow: 'auto',
+          p: 3,
+          mb: 2,
+          borderRadius: 3,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {messages.length === 0 && !isStreaming ? (
+          <Box sx={{ m: 'auto', textAlign: 'center', maxWidth: 480, py: 4 }}>
+            <AgentIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2, opacity: 0.7 }} />
+            <Typography variant="h6" gutterBottom>
+              Start a conversation
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              {type === 'agent' && !agentConfigured
+                ? 'This agent needs configuration before it can use integrations. You can still chat with the AI persona.'
+                : 'Try one of these prompts or type your own message below.'}
+            </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {prompts.map((prompt) => (
+                <Button
+                  key={prompt}
+                  variant="outlined"
+                  size="small"
+                  onClick={() => sendMessage(prompt)}
+                  sx={{ justifyContent: 'flex-start', textAlign: 'left', py: 1 }}
+                >
+                  {prompt}
+                </Button>
+              ))}
+            </Box>
+          </Box>
+        ) : (
+          <>
+            {messages.map((msg, index) => (
+              <MessageBubble key={msg._id || `${msg.timestamp}-${index}`} message={msg} />
+            ))}
+            {isStreaming && (
+              <MessageBubble
+                message={{
+                  content: currentStream,
+                  sender: 'agent',
+                  timestamp: new Date().toISOString(),
+                }}
+                isStreaming
+              />
+            )}
+          </>
+        )}
+        <div ref={messagesEndRef} />
+      </Paper>
 
-      {/* Input */}
-      <Box
+      <Paper
         component="form"
         onSubmit={handleSend}
         sx={{
           p: 2,
-          bgcolor: 'background.paper',
           display: 'flex',
-          gap: 1
+          gap: 1.5,
+          alignItems: 'flex-end',
+          borderRadius: 3,
         }}
       >
         <TextField
           fullWidth
+          multiline
+          maxRows={4}
           variant="outlined"
-          placeholder="Type your message..."
+          placeholder="Type your message…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyPress={handleKeyPress}
-          disabled={isLoading}
+          onKeyDown={handleKeyDown}
+          disabled={isLoading && !isStreaming}
           size="small"
+          sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
         />
         <IconButton
           type="submit"
-          color="primary"
           disabled={isLoading || !input.trim()}
+          sx={{
+            bgcolor: 'primary.main',
+            color: 'white',
+            width: 44,
+            height: 44,
+            flexShrink: 0,
+            '&:hover': { bgcolor: 'primary.dark' },
+            '&.Mui-disabled': { bgcolor: 'action.disabledBackground' },
+          }}
         >
-          {isLoading ? <CircularProgress size={24} /> : <SendIcon />}
+          {isLoading && !isStreaming ? <CircularProgress size={22} color="inherit" /> : <SendIcon />}
         </IconButton>
-      </Box>
+      </Paper>
     </Box>
   );
 };
 
-export default Chat; 
+export default Chat;

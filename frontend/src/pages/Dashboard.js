@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Grid,
   Card,
   CardContent,
   Typography,
-  Button,
   CircularProgress,
   List,
   ListItem,
   ListItemText,
   ListItemIcon,
   Divider,
-  Paper
+  Paper,
+  Avatar,
+  Chip,
 } from '@mui/material';
 import {
   GitHub as GitHubIcon,
@@ -21,192 +22,256 @@ import {
   CalendarToday as CalendarIcon,
   Chat as ChatIcon,
   Add as AddIcon,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  SmartToy as AgentIcon,
+  Forum as ForumIcon,
+  Link as LinkIcon,
+  HealthAndSafety as HealthIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import { getDashboardStats } from '../services/api';
+import ActivityLog from '../components/ActivityLog';
+
+const HEALTH_COLORS = {
+  healthy: 'success',
+  degraded: 'warning',
+  warning: 'error',
+  error: 'error',
+};
+
+const TYPE_ICONS = {
+  github: <GitHubIcon />,
+  shopify: <ShopifyIcon />,
+  email: <EmailIcon />,
+  calendar: <CalendarIcon />,
+  general: <ChatIcon />,
+};
+
+const StatCard = ({ title, value, icon, color = 'primary', subtitle }) => (
+  <Card sx={{ height: '100%' }}>
+    <CardContent>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Box>
+          <Typography color="text.secondary" gutterBottom variant="body2" sx={{ fontWeight: 500 }}>
+            {title}
+          </Typography>
+          <Typography variant="h3" component="div" color={`${color}.main`} sx={{ fontSize: '2rem' }}>
+            {value}
+          </Typography>
+          {subtitle && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+              {subtitle}
+            </Typography>
+          )}
+        </Box>
+        <Avatar sx={{ bgcolor: `rgba(124, 108, 240, 0.15)`, color: `${color}.main`, width: 52, height: 52 }}>
+          {icon}
+        </Avatar>
+      </Box>
+    </CardContent>
+  </Card>
+);
+
+const QuickAction = ({ icon, title, description, onClick, color = 'primary' }) => (
+  <Card
+    onClick={onClick}
+    sx={{
+      cursor: 'pointer',
+      height: '100%',
+      transition: 'all 0.25s ease',
+      '&:hover': {
+        transform: 'translateY(-3px)',
+        borderColor: 'rgba(124, 108, 240, 0.4)',
+        boxShadow: '0 8px 32px rgba(124, 108, 240, 0.12)',
+      },
+    }}
+  >
+    <CardContent sx={{ textAlign: 'center', py: 3 }}>
+      <Avatar sx={{ bgcolor: `${color}.main`, mx: 'auto', mb: 2, width: 52, height: 52 }}>
+        {icon}
+      </Avatar>
+      <Typography variant="subtitle1" gutterBottom fontWeight={600}>
+        {title}
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        {description}
+      </Typography>
+    </CardContent>
+  </Card>
+);
 
 const Dashboard = () => {
-  const [stats, setStats] = useState({
-    activeAgents: 0,
-    activeConversations: 0,
-    connectedTools: 0,
-    recentMessages: []
-  });
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const navigate = useNavigate();
+
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      const { data } = await getDashboardStats();
+      setStats(data);
+      setError(false);
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
-    try {
-      const [agentsRes, conversationsRes] = await Promise.all([
-        axios.get('http://localhost:5000/api/agents'),
-        axios.get('http://localhost:5000/api/conversations/recent')
-      ]);
-
-      const activeAgents = agentsRes.data.filter(agent => agent.status === 'active').length;
-      const connectedTools = agentsRes.data.reduce((acc, agent) => {
-        if (agent.configuration && agent.configuration.size > 0) acc++;
-        return acc;
-      }, 0);
-
-      setStats({
-        activeAgents,
-        activeConversations: conversationsRes.data.length,
-        connectedTools,
-        recentMessages: conversationsRes.data
-      });
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      setLoading(false);
-    }
-  };
-
-  const QuickAction = ({ icon: Icon, title, description, onClick }) => (
-    <Card sx={{ height: '100%', cursor: 'pointer' }} onClick={onClick}>
-      <CardContent>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-          <Icon sx={{ fontSize: 40, mr: 2, color: 'primary.main' }} />
-          <Box>
-            <Typography variant="h6">{title}</Typography>
-            <Typography variant="body2" color="text.secondary">
-              {description}
-            </Typography>
-          </Box>
-        </Box>
-      </CardContent>
-    </Card>
-  );
+    const interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '70vh' }}>
         <CircularProgress />
       </Box>
     );
   }
 
+  const healthColor = HEALTH_COLORS[stats?.systemHealth] || 'default';
+
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Dashboard
-      </Typography>
+    <Box sx={{ maxWidth: 1400, mx: 'auto' }}>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" gutterBottom>
+          Dashboard
+        </Typography>
+        <Typography variant="body1" color="text.secondary">
+          Monitor your agents, conversations, and system activity in real time.
+        </Typography>
+      </Box>
 
-      {/* Statistics Cards */}
+      {error && (
+        <Chip label="Could not reach backend — showing last known data" color="warning" sx={{ mb: 2 }} />
+      )}
+
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Active Agents
-              </Typography>
-              <Typography variant="h4">
-                {stats.activeAgents}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Active Conversations
-              </Typography>
-              <Typography variant="h4">
-                {stats.activeConversations}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Connected Tools
-              </Typography>
-              <Typography variant="h4">
-                {stats.connectedTools}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                System Status
-              </Typography>
-              <Typography variant="h4" color="success.main">
-                Online
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Quick Actions */}
-      <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
-        Quick Actions
-      </Typography>
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={4}>
-          <QuickAction
-            icon={ChatIcon}
-            title="General Chat"
-            description="Chat with our AI assistant"
-            onClick={() => navigate('/chat/general')}
+          <StatCard
+            title="Active Agents"
+            value={stats?.activeAgents ?? 0}
+            icon={<AgentIcon />}
+            color="primary"
+            subtitle={`${stats?.totalAgents ?? 0} total`}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <QuickAction
-            icon={AddIcon}
-            title="New Agent"
-            description="Register a new agent"
-            onClick={() => navigate('/agents/new')}
+        <Grid item xs={12} sm={6} md={3}>
+          <StatCard
+            title="Conversations"
+            value={stats?.totalConversations ?? 0}
+            icon={<ForumIcon />}
+            color="secondary"
+            subtitle={`${stats?.messagesToday ?? 0} messages today`}
           />
         </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <QuickAction
-            icon={SettingsIcon}
-            title="Settings"
-            description="Configure system settings"
-            onClick={() => navigate('/settings')}
+        <Grid item xs={12} sm={6} md={3}>
+          <StatCard
+            title="Configured"
+            value={stats?.configuredAgents ?? 0}
+            icon={<LinkIcon />}
+            color="success"
+            subtitle="Agents with credentials"
+          />
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <StatCard
+            title="System Health"
+            value={
+              <Chip
+                label={(stats?.systemHealth || 'unknown').toUpperCase()}
+                color={healthColor}
+                size="small"
+                sx={{ fontWeight: 600 }}
+              />
+            }
+            icon={<HealthIcon />}
+            color={healthColor}
+            subtitle={`${stats?.totalMessages ?? 0} total messages`}
           />
         </Grid>
       </Grid>
 
-      {/* Recent Activity */}
-      <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
-        Recent Activity
-      </Typography>
-      <Paper sx={{ p: 2 }}>
-        <List>
-          {stats.recentMessages.map((message, index) => (
-            <React.Fragment key={message._id}>
-              <ListItem>
-                <ListItemIcon>
-                  {message.type === 'github' && <GitHubIcon />}
-                  {message.type === 'shopify' && <ShopifyIcon />}
-                  {message.type === 'email' && <EmailIcon />}
-                  {message.type === 'calendar' && <CalendarIcon />}
-                  {message.type === 'general' && <ChatIcon />}
-                </ListItemIcon>
-                <ListItemText
-                  primary={message.content}
-                  secondary={`${new Date(message.timestamp).toLocaleString()} - ${message.type}`}
-                />
-              </ListItem>
-              {index < stats.recentMessages.length - 1 && <Divider />}
-            </React.Fragment>
-          ))}
-        </List>
-      </Paper>
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={8}>
+          <Typography variant="h5" gutterBottom sx={{ mb: 2 }}>
+            Quick Actions
+          </Typography>
+          <Grid container spacing={2} sx={{ mb: 4 }}>
+            <Grid item xs={12} sm={4}>
+              <QuickAction
+                icon={<ChatIcon />}
+                title="General Chat"
+                description="Talk to the AI assistant"
+                onClick={() => navigate('/chat/general')}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <QuickAction
+                icon={<AddIcon />}
+                title="Browse Templates"
+                description="Create agents from templates"
+                onClick={() => navigate('/templates')}
+                color="secondary"
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <QuickAction
+                icon={<SettingsIcon />}
+                title="Settings"
+                description="Configure your platform"
+                onClick={() => navigate('/settings')}
+                color="info"
+              />
+            </Grid>
+          </Grid>
+
+          <Typography variant="h5" gutterBottom sx={{ mb: 2 }}>
+            Recent Messages
+          </Typography>
+          <Paper sx={{ p: 1 }}>
+            {stats?.recentMessages?.length > 0 ? (
+              <List>
+                {stats.recentMessages.map((message, index) => (
+                  <React.Fragment key={message._id || index}>
+                    <ListItem sx={{ py: 1.5 }}>
+                      <ListItemIcon sx={{ minWidth: 40 }}>
+                        {TYPE_ICONS[message.type] || <ChatIcon />}
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={message.content}
+                        secondary={`${new Date(message.timestamp).toLocaleString()} · ${message.sender}`}
+                        primaryTypographyProps={{
+                          sx: {
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          },
+                        }}
+                      />
+                    </ListItem>
+                    {index < stats.recentMessages.length - 1 && <Divider />}
+                  </React.Fragment>
+                ))}
+              </List>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 5 }}>
+                No messages yet — start a conversation to see activity here.
+              </Typography>
+            )}
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <ActivityLog />
+        </Grid>
+      </Grid>
     </Box>
   );
 };
 
-export default Dashboard; 
+export default Dashboard;

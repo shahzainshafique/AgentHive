@@ -95,6 +95,8 @@ class ConversationController {
         sender: message.sender,
         timestamp: message.timestamp || new Date()
       };
+
+      conversation.messages.push(newMessage);
       await conversation.save();
 
       res.json(newMessage);
